@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="utf-8">
+<meta name="description" content="Web tool for drawing and simulating Finite State Machines (FSMs)">
+<meta name="keywords" content="FSM,Simulate">
+<meta name="author" content="Douglas H. Summerville">
+<html lang="en">
+<head> 
+<title>FSM Explorer</title>
+
+<style>
+*, *:before, *:after {
+    box-sizing: border-box;
+}
+html { background-color: #000; } 
+body {
+    max-width: 100%;
+    background-color: papayawhip; 
+    margin: 0;
+}
+#fsmcanvas {
+	background: grey;
+	object-fit: contain;
+	display: inline-block;
+	max-width: 100vw;
+	max-height: 90vh;
+}
+#simcanvas {
+	background: grey;
+	object-fit: contain;
+	display: inline-block;
+	max-width: 100vw;
+	max-height: 90vh;
+}
+.toolbtnselected {
+	color: #00f;
+}
+button{
+  border-style: solid;
+  border-width: 1px;
+  border-radius: 3px;
+  box-shadow: rgba(255,255,255,.6) 0 1px 0 inset;
+  box-sizing: border-box;
+  text-align: center;
+}
+
+#helpModal::backdrop {
+  background-color: rgba(0, 0, 0, 0.8);
+}
+#fsmproperties::backdrop {
+  background-color: rgba(0, 0, 0, 0.8);
+}
+#simulator{
+	display: flex;
+	flex-flow: row wrap;
+	justify-content: center;
+	gap: 10px;
+	overflow: auto;
+	min-width: 300px;
+}
+#maincontent{
+	display: flex;
+	flex-flow: row wrap;
+	justify-content: center;
+	gap: 10px;
+	overflow: auto;
+	height: 100vh;
+}
+#bottomtools{
+	display: flex;
+	justify-content: space-between;
+}
+#filetoolbuttons{
+	display: flex;
+	flex-wrap: wrap;
+}
+#tooltoolbuttons{
+	display: flex;
+	flex-wrap: wrap;
+}
+#edittoolbuttons{
+	display: flex;
+	flex-wrap: wrap;
+}
+#helptoolbuttons{
+	display: flex;
+	flex-wrap: wrap;
+	flex-wrap: wrap;
+}
+#toolbuttons{
+	display: flex;
+	justify-content: start;
+	gap: 20px;
+}
+#propertyedit{
+	position:absolute;
+	background-color: rgba(255, 255, 255, 0.8);
+	padding: 10px;
+	border-width:2px;
+	border-style: solid;
+	border-color: black;
+	box-shadow: 10px 5px 5px rgba(100,100,100,.9);	
+}
+#fsmdiv{
+	position: relative;
+}
+</style>
+
+<script src="fsm.js"></script>
+<script>
+function showsignals(type){
+	let n=document.getElementById("numberof"+type+"signals").value;
+	for( let i=2; i<=5; i++ ){
+		let e=document.getElementById(type+"signal"+i);
+			if( e !== null )
+				e.disabled=(i<=n)?false:true;
+	}
+}
+</script>
+</head>
+
+<body>
+
+<div id="maincontent" >
+	<div id="fsmdiv" > 
+		<div id="toolbuttons">
+			<div id="filetoolbuttons" ></div>
+			<div id="tooltoolbuttons" ></div>
+			<div id="edittoolbuttons" ></div>
+			<div id="helptoolbuttons" ></div>
+		</div>
+		<div id="fsmcanvasdiv">
+			<canvas id="fsmcanvas" width="800px" height="600px"></canvas>
+		</div>
+		<div id="propertyedit">
+			  <label for="property1" id="property1label">Value1</label>
+			<input id="property1" name="input" type="text" tabindex="0"><br/>
+			  <label for="property2" id="property2label">Value1</label>
+			<input id="property2" name="input" type="text" tabindex="0"><br/>
+			<div>
+				<button type="button" id="confirmproperty" tabindex="0">Update</button>
+			</div>
+		</div>
+		<div id="bottomtools">
+			<div id="toolmodifiers" >
+				<label>Snap to Grid<input type="checkbox" id="snapNode" name="snapNode" title="Select to turn on FSM node snapping to grid"></label>
+				<label>Snap size<input type="number" id="snapSize" name="snapSize" min="1" max="40" value="20" title="Set node-snapping grid size"></label>
+				<label>Node size<input type="range" id="nodeSize" name="nodeSize" min="10" max="100" value="50" step="5" title="Set the node radius"></label>
+				<label>Font size<input type="range" id="fontSize" name="fontSize" min="10" max="40" value="22" step="1"title="Set the font size"></label>
+			</div>
+			<div id="canvasmodifiers" >
+			</div>
+		</div>
+	</div>
+	<div id="simulatorcontainer">
+		<div id="simulator" style="min-width:300px;">
+			<div id="simulatedfsm" style="min-width:600px;">
+				<canvas id="simcanvas" width="800px" height="200px"></canvas>
+			</div>
+	</div>
+	<div>
+	<button type="button" id="togglemodebtn" tabindex="0">Simulate</button>
+	</div>
+</div>
+
+<dialog type="modal" id="helpModal">
+<h1>Finite State Machine Explorer Help</h1>
+<h2>About</h2>
+<p>Finite State Machine (FSM) Explorer is an educational tool for exploring FSM controllers, the type of FSM used by engineers when designing digital systems. The tool allows the user to draw an FSM diagram, specify node and arc parameters, and functionally simulate the resulting FSM.</p>
+<h2>Getting Started</h2>
+<p>An FSM diagram is drawn by placing nodes, interconnecting them by arcs, and specifying arc conditions and output values.  FSM diagrams are drawn using two primary tools:</p>
+<dl>
+<dt>Node Tool</dt>
+<dd> allows the user to click on an empty place on the canvas and place a new node.  Double-clicking a node brings up a property editor that allows the user to edit the state name and optional Moore outputs.  Nodes can be repositioned using click-and-drag.  </dd>
+<dt>Arc Tool</dt>
+<dd> allows the user to create a reset arc or arcs between nodes.  Click on an empty spot on the canvas and drag the arc to a node to create a reset node.  Click on an existing node to create a self arc.  Click on an existing node and drag the arc to another to create an arc between nodes.  Double-clicking an arc brings up a property editor that allows the user to edit the arc condition and optional Mealy outputs.  Arcs can be reshaped by click-and-drag.  </dd>
+</dl>
+<p>For information on other user inputs, click on the Help button.</p>
+<form method="dialog">
+    <button>Close</button>
+  </form>
+<h3>Copyright 2024 by Douglas H. Summerville </h3>
+</dialog>
+
+<dialog type="modal" id="welcomeModal">
+<h1>Finite State Machine Explorer</h1>
+<h2>About</h2>
+<p>Finite State Machine (FSM) Explorer is an educational tool for exploring FSM controllers, the type of FSM used by engineers when designing digital systems. The tool allows the user to draw an FSM diagram, specify node and arc parameters, and functionally simulate the resulting FSM.</p>
+<h2>Getting Started</h2>
+<p>An FSM diagram is drawn by placing nodes, interconnecting them by arcs, and specifying arc conditions and output values.  FSM diagrams are drawn using two primary tools:</p>
+<dl>
+<dt>Node Tool</dt>
+<dd> allows the user to click on an empty place on the canvas and place a new node.  Double-clicking a node brings up a property editor that allows the user to edit the state name and optional Moore outputs.  Nodes can be repositioned using click-and-drag.</dd>
+<dt>Arc Tool</dt>
+<dd> allows the user to create a reset arc or arcs between nodes.  Click on an empty spot on the canvas and drag the arc to a node to create a reset node.  Click on an existing node to create a self arc.  Click on an existing node and drag the arc to another to create an arc between nodes.  Double-clicking an arc brings up a property editor that allows the user to edit the arc condition and optional Mealy outputs.  Arcs can be reshaped by click-and-drag.  </dd>
+</dl>
+<p>For information on other user inputs, click on the Help button.</p>
+<form method="dialog">
+    <button>Get Started...</button>
+  </form>
+<h3>Copyright 2024 by Douglas H. Summerville </h3>
+</dialog>
+
+<dialog type="modal" id="fsmproperties">
+<form method="dialog">
+	<div>
+		<h1>FSM Settings</h1>
+	</div>
+	<div>
+		<h2>FSM Inputs</h2>
+		<label for="resetsignal">Reset Signal name:</label>
+		<input type="text" id="resetsignal" value="rst"></input><br/>
+		<label for="clocksignal">Clock Signal name:</label>
+		<input type="text" id="clocksignal" value="clk"></input><br/>
+		<div id="fsminputdiv">
+			<label for="numberofinputsignals">Number of FSM data inputs</label>
+			<input type="number" id="numberofinputsignals" min="1" max="5" value="1" oninput='showsignals("input");'></input><br/>
+			<p>Names of inputs:</p>
+			<label for="inputsignal1">Signal 1 name:</label>
+			<input type="text" id="inputsignal1" value="a"></input><br/>
+			<label for="inputsignal2">Signal 2 name:</label>
+			<input type="text" id="inputsignal2" value="b" disabled></input><br/>
+			<label for="inputsignal3">Signal 3 name:</label>
+			<input type="text" id="inputsignal3" value="c" disabled></input><br/>
+			<label for="inputsignal4">Signal 4 name:</label>
+			<input type="text" id="inputsignal4" value="d" disabled></input><br/>
+			<label for="inputsignal5">Signal 5 name:</label>
+			<input type="text" id="inputsignal5" value="e" disabled></input><br/>
+		</div>
+		<h2>FSM Outputs</h2>
+		<div id="fsmoutputdiv">
+			<label for="numberofoutputsignals">Number of FSM data outputs</label>
+			<input type="number" id="numberofoutputsignals" min="1" max="3" value="1" oninput='showsignals("output")';"></input><br/>
+			<p>Names of outputs:</p>
+			<label for="outputsignal1">Signal 1 name:</label>
+			<input type="text" id="outputsignal1" value="f"></input><br/>
+			<label for="outputsignal2">Signal 2 name:</label>
+			<input type="text" id="outputsignal2" value="g" disabled></input><br/>
+			<label for="outputsignal3">Signal 3 name:</label>
+			<input type="text" id="outputsignal3" value="h" disabled></input><br/>
+		</div>
+		<div>
+			<input type="reset" value="Reset to Defaults"></input>
+			<input type="submit" value="Save"></input>
+		</div>
+	</div>
+  </form>
+</dialog>
+</body>
+</html>
