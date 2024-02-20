@@ -19,8 +19,13 @@ var historyExcludeMultiple=["node size","font size"];
 var currentMode= "";
 var multiSelect= false;
 var waveforms=null;
+var mouseClick=null;
 /*Simulator*/
 var simCanvas=null;
+
+function limitRangeOf(v,min=0,max=1){
+	return Math.min( Math.max(v, min), max );
+}
 class history{
 	constructor(m,r,exclude){
 		this.states=new Array();
@@ -182,21 +187,25 @@ class boundingBox{
 	relativeCoordinatesOfPoint(p){
 		return new point((p.x-this.start.x)/this.width, (p.y-this.start.y)/this.height);
 	}
+	left() {return Math.min(this.start.x,this.end.x);}
+	right() {return Math.max(this.start.x,this.end.x);}
+	top() {return Math.min(this.start.y,this.end.y);}
+	bottom() {return Math.max(this.start.y,this.end.y);}
 }
 function locateObjectAt(p) {
-	for (node of fsmNodes) {
+	for(let node of fsmNodes) {
 		if( node.containsPoint(p) )
 			return node;
 	}
-	for (arc of fsmArcs) {
+	for(let arc of fsmArcs) {
 		if( arc.containsPoint(p) )
 			return arc;
 	}
-	for (arc of fsmSelfArcs) {
+	for(let arc of fsmSelfArcs) {
 		if( arc.containsPoint(p) )
 			return arc;
 	}
-	for (arc of fsmResetArcs) {
+	for(let arc of fsmResetArcs) {
 		if( arc.containsPoint(p) )
 			return arc;
 	}
@@ -239,6 +248,9 @@ class point{
 	}
 	multiplyBy(a){
 		return new point( this.x*a, this.y*a);
+	}
+	round(){
+		return new point( Math.round(this.x), Math.round(this.y));
 	}
 	backup(){
 		return {'x': this.x, 'y': this.y};
@@ -310,6 +322,9 @@ class vector{
 	scale(a){
 		return new vector(this.from, this.midpoint(a));
 	}	
+	round(){
+		return new vector( this.from.round(), this.to.round());
+	}
 	backup(){
 		return { 'from': this.from.backup(), 'to': this.to.backup() };
 	}
@@ -325,7 +340,7 @@ function Bezier(P0,P1,P2,t){
 class fsmElement{
 	constructor(ref={from:{x:0,y:0},to:{x:0,y:0}}){
 		this.location= new vector(ref);
-		this.selected= 'f';
+		this.selected= false;
 		this.fsmType="none";
 		this.fsmSubtype="none";
 	}
@@ -336,16 +351,16 @@ class fsmElement{
 		return this.location.to;
 	}
 	select(){
-		this.selected='t';
+		this.selected=true;
 	}
 	deselect(){
-		this.selected='f';
+		this.selected=false;
 	}
 	setSelected(c){
 		this.selected=c;
 	}
 	isSelected(){
-		return this.selected !='f';
+		return this.selected !== false;
 	}
 }
 class temporaryArc extends fsmElement{
@@ -394,16 +409,16 @@ class fsmArc extends fsmElement{
 		}
 		this.referencePoint=pt;
 		this.updateCurve();
-		this.inputText="";
 		this.outputText="";
+		//this.outputText="";
 		this.fsmType="arc";
 	}
 	backup(){
 		return {
 			'startNode': fsmNodes.indexOf(this.startNode),
 			'endNode': fsmNodes.indexOf(this.endNode),
-			'inputText': this.inputText,
 			'outputText': this.outputText,
+			//'outputText': this.outputText,
 			'referencePoint': this.referencePoint.backup(),
 			'selected': this.selected
 		};
@@ -411,31 +426,19 @@ class fsmArc extends fsmElement{
 	static from(p){
 		let retval = new fsmArc( fsmNodes[p.startNode], fsmNodes[p.endNode], p.referencePoint);
 		retval.updateCurve();
-		retval.inputText=p.inputText;
 		retval.outputText=p.outputText;
+		//retval.outputText=p.outputText;
 		retval.selected=p.selected;
 		return retval;
 	}
 	updateCurve(){
 		this.curve=new Array();
-		if( this.startNode != this.endNode ){
-			for( var t=0; t<=1; t=t+1/1000)
-			{
-				let pc=this.location.scale(2).to;
-				var pt=Bezier(this.startNode.referencePoint,pc,this.endNode.referencePoint,t);
-				if( !( this.startNode.containsPoint(pt) || this.endNode.containsPoint(pt) ))
-						this.curve.push( pt );
-			}
-		}else{
-			let v1=new vector(this.startNode.referencePoint, this.referencePoint);
-			v1=v1.normalize(v1.length()-nodeRadius+5);
-			let v2=v1.scale(.5).translateFrom(this.referencePoint).rotate(Math.PI);
-			for( var t=0; t<=1000; t=t+1)
-			{
-				if( !this.startNode.containsPoint(v2.to))
-					this.curve.push( v2.to );
-				v2=v2.rotate(2*Math.PI/1000);
-			}
+		for( let t=0; t<=1; t=t+1/1000)
+		{
+			let pc=this.location.scale(2).to;
+			var pt=Bezier(this.startNode.referencePoint,pc,this.endNode.referencePoint,t);
+			if( !( this.startNode.containsPoint(pt) || this.endNode.containsPoint(pt) ))
+					this.curve.push( pt );
 		}
 	}
 	draw(c){
@@ -451,10 +454,7 @@ class fsmArc extends fsmElement{
 		c.arrowAtVector(normal,nodeRadius/5,true);
 		c.textAlign="center";
 		c.textBaseline="middle";
-		let text=this.inputText;
-		if( this.outputText) 
-			text=text+' / '+this.outputText ;
-		c.fillTextAtVector(text,this.location,10);
+		c.fillTextAtVector(this.outputText,this.location,10);
 	};
 	set referencePoint(p){
 		let vec1=new vector(this.startNode.referencePoint, this.endNode.referencePoint); 
@@ -482,25 +482,27 @@ class fsmArc extends fsmElement{
 };
 
 class fsmResetArc extends fsmElement{
-	constructor(ta,node,input="reset",output=""){
+	constructor(ta,node,output="reset"){
 		super();
 		this.node=node;
+		this.startNode=this.node;
+		this.endNode=this.node;
 		this.referencePoint=ta.startPoint;
-		this.inputText=input;
+		this.outputText=output;
 		this.fsmType="arc";
 		this.fsmSubtype="reset";
 	}
 	backup(){
 		return {
 			'node': fsmNodes.indexOf(this.node),
-			'inputText': this.inputText,
+			'outputText': this.outputText,
 			'referencePoint': this.referencePoint.backup(),
 			'selected': this.selected
 		};
 	}
 	static from(p){
 		let retval= new fsmResetArc( new temporaryArc({n:null,p:p.referencePoint}),fsmNodes[p.node]);
-		retval.inputText= p.inputText;
+		retval.outputText= p.outputText;
 		retval.selected=p.selected;
 		return retval;
 	}
@@ -512,7 +514,7 @@ class fsmResetArc extends fsmElement{
 		c.stroke();
 		c.arrowAtVector(this.location.normalize(-1),nodeRadius/5,true);
 		//text
-		c.fillTextAtVector(this.inputText,this.location,10);
+		c.fillTextAtVector(this.outputText,this.location,10);
 	}
 	containsPoint(pt) {
 		//if point distance to endpoints of arc ~ length of arc
@@ -537,32 +539,44 @@ class fsmResetArc extends fsmElement{
 		this.location=this.location.translateTo(this.location.to);
 	}
 };
+function cubeMatch(inputs,cube){
+	for( let i=0; i<cube.length && i < inputs.length; i++){
+		if( cube[i]==="1" && inputs[i]==="0" || cube[i]==="0" && inputs[i]==="1" )
+			return false;
+	}
+	return true;
+}
 class booleanExpression{
 	constructor(expr,literals){			
 		this.expr=expr;
 		this.literals=literals;
-		this.minterms=minterms;
 	}
-	minterms(literals){
+	minterms(literals=this.literals){
 		let s=new Set();
-		for( let i=0; i<2**literals.length; i++ ){
-			let m=this.evaluate(literals,i.toString(2).padStart(literals.length,'0').split(''));
-			if( m === "U" )
-				return null;
-			else if( m=== "1" )
+		for( let i=0; i<2**literals.length; i++ )
+			if( "1"=== this.evaluate(i.toString(2).padStart(literals.length,'0').split(''),literals))
 				s.add(i);
-		}
 		return s;
 	}
-	evaluate(literals,values){
+	evaluate(input,literals=this.literals){
 		let e=this.expr;
-		let ordered=literals.toSorted().reverse();
-		for( let l of ordered){
-			e=e.replaceAll(l,values[literals.indexOf(l)]);
+		if( e==="" ) return "1";
+		let cubes=e.split(/[ ,]/g).filter(c=>c!=="");
+		if( cubes.every(c=> c.match(/^[01?xX-]+$/g)!==null)){
+			if( cubes.some( c=> cubeMatch(input, c.split(""))))
+				return "1";
+			else
+				return "0";
+		}
+		let ordered=literals.toSorted((a,b)=>b.length-a.length );
+		for( let l of ordered ){
+			e=e.replaceAll(l,input[literals.indexOf(l)]);
 		}
 		let e_last;
 		e = e.replace(/[\*&\.]+/g, ""); //Drop AND-like symbols
 		e = e.replace(/\s*/g,""); //remove whitespace
+		e = e.replace(/[\|+]+/g, "+"); //OR-like symbols
+		e = e.replace(/[X?-]+/g, "1"); //Don't Care like symbols are true
 		do{
 			e_last=e.slice();
 			if (e.length < 2 ) break;
@@ -570,8 +584,8 @@ class booleanExpression{
 			e=e.replace(/!1|1'/g,"0");
 			e = e.replace(/(?:^|\()(?:0\+)*1(?:\+[01])*(?:$|\))/g, "1");
 			e = e.replace(/(?:^|\()0(?:\+0)*(?:$|\))/g, "0");
-			e = e.replace(/(?:^|\()[01]*0[01]*(?:$|\))/g,"0");
-			e = e.replace(/(?:^|\()1+(?:$|\))/g,"1");
+			e = e.replace(/(?:\(*)[01]*0[01]*(?:\)*)/g,"0");
+			e = e.replace(/(?:\(*)1+(?:$|\)*)/g,"1");
 		}while( e_last !== e);
 		if( e === "0" || e === "1" )
 			return e;
@@ -581,18 +595,18 @@ class booleanExpression{
 	
 }
 class fsmSelfArc extends fsmElement{
-	constructor(ta,input="",output=""){
+	constructor(ta,output=""){
 		super();
 		this.node=ta.node;
+		this.startNode=this.node;
+		this.endNode=this.node;
 		this.referencePoint=new point(ta.referencePoint);
-		this.inputText=input;
 		this.outputText=output;
 		this.fsmType="arc";
 	}
 	backup(){
 		return {
 			'node': fsmNodes.indexOf(this.node),
-			'inputText': this.inputText,
 			'outputText': this.outputText,
 			'referencePoint': this.referencePoint.backup(),
 			'selected': this.selected
@@ -600,7 +614,6 @@ class fsmSelfArc extends fsmElement{
 	}
 	static from(p){
 		let retval= new fsmSelfArc( new temporaryArc({n:fsmNodes[p.node],p:p.referencePoint}));
-		retval.inputText= p.inputText;
 		retval.outputText= p.outputText;
 		retval.selected= p.selected;
 		return retval;
@@ -615,7 +628,6 @@ class fsmSelfArc extends fsmElement{
 
 	draw(c){
 		c.fillStyle=c.strokeStyle=this.isSelected()?'blue':'black';
-		//let a=Math.acos(Math.sqrt(fsmSelfArc.radius**2-(fsmSelfArc.distance-nodeRadius)**2)/nodeRadius);
 		let a=Math.acos( (0-nodeRadius**2+fsmSelfArc.radius**2+fsmSelfArc.distance**2)/(2*fsmSelfArc.radius*fsmSelfArc.distance));
 		c.beginPath();
 		let arcEnd=this.location.rotate(Math.PI-a).angle();
@@ -624,10 +636,7 @@ class fsmSelfArc extends fsmElement{
 		c.stroke();
 		let v=this.location.translateTo(this.location.to).normalize(fsmSelfArc.radius).rotate(Math.PI-a);
 		c.arrowAtVector(v,nodeRadius/5,true,7*Math.PI/16);
-		let text=this.inputText;
-		if( this.outputText != "") 
-			text=text+' / '+this.outputText ;
-		c.fillTextAtVector(text,this.location.normalize(fsmSelfArc.distance+fsmSelfArc.radius),10);
+		c.fillTextAtVector(this.outputText,this.location.normalize(fsmSelfArc.distance+fsmSelfArc.radius),10);
 	}
 	containsPoint(pt) {
 		if( distance(this.referencePoint,pt) < fsmSelfArc.radius+5 )
@@ -648,35 +657,34 @@ class fsmSelfArc extends fsmElement{
 };
 function nextStateName(){
 	let inUse=fsmNodes.map(n => n.stateName);
-	if( !inUse.every(a => a[0]=="S" && (a.length==2 || !isNaN(parseInt(a.substring(1))) )))
+	let formatIsS0=inUse.every(a => a.search(/^[sS]\d+$/)!==-1);
+	let formatIsSA=inUse.every(a => a.search(/^[sS][A-Za-z]+$/)!==-1);
+	if( !formatIsS0 && !formatIsSA )
 		return '';
-	if( inUse.length==0 || inUse.every(a => !isNaN(parseInt(a.substring(1))))) 
-		for( i=0; i<26; i++ )
-			if( !inUse.includes("S"+i))
-				return "S"+i;
-	if( inUse.every(a => a[0]=="S" && a.length==2 && isNaN(parseInt(a.substring(1))))) 
-		for( i=0; i<26; i++ )
-			if( !inUse.includes("S"+String.fromCharCode(65+i)))
-				return "S"+String.fromCharCode(65+i);
+	for( let i=0; i<26; i++ ){
+		let name=formatIsS0 ? "S"+i : "S"+String.fromCharCode(65+i);
+		if( !inUse.includes(name))
+			return name;
+	}
 	return "";
 }
 class fsmNode extends fsmElement{
-	constructor(p,stateName="",outputs=[]) {
+	constructor(p,stateName="",outputs="") {
 		super(p);
 		this.stateName= stateName==="" ? nextStateName(): stateName;
-		this.mooreOutputs=outputs;
+		this.outputText=outputs;
 		this.fsmType="node";
 	}
 	backup(){
 		return {
 			'referencePoint':this.referencePoint,
 			'stateName': this.stateName,
-			'mooreOutputs': this.mooreOutputs,
+			'outputText': this.outputText,
 			'selected': this.selected
 		};
 	}
 	static from(json){
-		let retval= new fsmNode( json.referencePoint, json.stateName, json.mooreOutputs);
+		let retval= new fsmNode( json.referencePoint, json.stateName, json.outputText);
 		retval.selected= json.selected;
 		return retval;
 	}
@@ -685,7 +693,6 @@ class fsmNode extends fsmElement{
 		c.beginPath();
 		c.arcAtCenter(this.referencePoint, nodeRadius, 0, 2 * Math.PI);
 		c.fillStyle='white';
-		//c.fill();
 		c.stroke();
 		//state name
 		c.textAlign="center";
@@ -693,12 +700,12 @@ class fsmNode extends fsmElement{
 		c.fillStyle=c.strokeStyle;
 		c.fillTextAtPoint(this.stateName,this.referencePoint);
 		//outputs
-		if( this.mooreOutputs.length != 0){
+		if( this.outputText.length != 0){
 			c.moveToPoint(this.referencePoint.minus({x:nodeRadius*.8,y:0}));
 			c.lineToPoint(this.referencePoint.plus({x:nodeRadius*.8,y:0}));
 			c.stroke();
 			c.textBaseline="top";
-			c.fillTextAtPoint(this.mooreOutputs,this.referencePoint.plus({x:0,y:2}));
+			c.fillTextAtPoint(this.outputText,this.referencePoint.plus({x:0,y:2}));
 		}
 	}
 	containsPoint(pt) {
@@ -706,11 +713,12 @@ class fsmNode extends fsmElement{
 	}
 	set referencePoint(p){
 		this.location.to=new point(p);
+		let snap=1;
 		if( document.getElementById("snapNode").checked){
-			let snap=parseInt(document.getElementById("snapSize").value);
-			this.location.to.x=Math.round(this.location.to.x/snap)*snap;
-			this.location.to.y=Math.round(this.location.to.y/snap)*snap;
+			snap=parseInt(document.getElementById("snapSize").value);
 		}
+		this.location.to.x=Math.round(this.location.to.x/snap)*snap;
+		this.location.to.y=Math.round(this.location.to.y/snap)*snap;
 		fsmArcs.filter(a => a.endNode==this || a.startNode==this).forEach( a => a.updateLocation());
 		fsmSelfArcs.filter(a => a.node==this).forEach( a => a.updateLocation());
 		fsmResetArcs.filter(a => a.node==this).forEach( a => a.updateLocation());
@@ -725,13 +733,17 @@ function makeBackup() {
 	let retval = {
 		'nodeRadius': 0,
 		'fontSize': 0,
-		'fsmNodes': new Array(),
-		'fsmArcs': new Array(),
-		'fsmSelfArcs': new Array(),
-		'fsmResetArcs': new Array()
+		'inputs': [],
+		'outputs': [],
+		'fsmNodes': [],
+		'fsmArcs': [],
+		'fsmSelfArcs': [],
+		'fsmResetArcs': []
 	};
 	retval.nodeRadius=nodeRadius;
 	retval.fontSize=document.getElementById("fontSize").value;
+	retval.inputs=document.getElementById("inputsignals").value;
+	retval.outputs=document.getElementById("outputsignals").value;
 	fsmNodes.forEach( n => retval.fsmNodes.push( n.backup() ));
 	fsmArcs.forEach( a => retval.fsmArcs.push( a.backup() ));
 	fsmSelfArcs.forEach( a => retval.fsmSelfArcs.push( a.backup() ));
@@ -749,6 +761,8 @@ function restoreBackup(json){
 		fsmSelfArc.updateParameters(nodeRadius);
 		document.getElementById("nodeSize").value=nodeRadius;
 		document.getElementById("fontSize").value=state.fontSize;
+		document.getElementById("inputsignals").value=state.inputs;
+		document.getElementById("outputsignals").value=state.outputs;
 		state.fsmNodes.forEach( n => fsmNodes.push( fsmNode.from(n)));
 		state.fsmArcs.forEach( a => fsmArcs.push( fsmArc.from(a)));
 		state.fsmSelfArcs.forEach( a => fsmSelfArcs.push( fsmSelfArc.from(a)));
@@ -790,6 +804,9 @@ function drawOnCanvas(c) {
 function updateFSM() {
 	drawOnCanvas(fsmCanvas.getContext('2d')); 
 }
+function updateSimFSM(ctx) {
+	drawOnCanvas(ctx); 
+}
 function selectAll(){
 	fsmNodes.forEach( e => e.select() );
 	fsmArcs.forEach( e => e.select() );
@@ -814,7 +831,6 @@ function toolSelect(t)
 }
 function deleteSelected(){
 	let wasDeleted= fsmNodes.some( n => n.isSelected() );
-	let aaaa=fsmNodes[0].isSelected();
 	fsmNodes=fsmNodes.filter( n => !n.isSelected() );
 	wasDeleted= wasDeleted || fsmArcs.some(a=> a.isSelected() || !fsmNodes.includes(a.startNode) || !fsmNodes.includes(a.endNode));
 	fsmArcs=fsmArcs.filter(a=> !a.isSelected() && fsmNodes.includes(a.startNode) && fsmNodes.includes(a.endNode) );
@@ -831,6 +847,8 @@ function deleteSelected(){
 
 //Auto arrange selected nodes on circle having diameter equal to their mean distance
 function autoArrange(){
+	let snap=document.getElementById("snapNode").checked;
+	document.getElementById("snapNode").checked=false;
 	let nodes=fsmNodes.filter( n =>n.isSelected());
 	let len=nodes.length;
 	if( len < 2 )
@@ -843,7 +861,7 @@ function autoArrange(){
 
 	//find phase that most closely matches node grouping
 	let angles=new Array();
-	for( n of nodes ){
+	for( let n of nodes ){
 		let a= new vector(center,n.referencePoint).angle();
 		let p= Math.abs(a % (Math.PI/(2*nodes.length)));
 		let s= Math.round(a/(Math.PI/(2*nodes.length)));
@@ -868,7 +886,7 @@ function autoArrange(){
 			let v1=new vector(a.startNode.referencePoint,a.endNode.referencePoint);
 			a.referencePoint=v1.normalize(nodeRadius/2).translateTo(v1.midpoint()).rotate(-Math.PI/2).to;
 	});
-	for ( a of fsmResetArcs ){
+	for ( let a of fsmResetArcs ){
 		let sa=fsmSelfArcs.find( sa=> sa.node == a.node);
 		if( undefined === sa ){
 			a.referencePoint= new vector(center,a.node.referencePoint).scale(1.5).to;
@@ -877,27 +895,28 @@ function autoArrange(){
 			a.referencePoint= new vector(center,a.node.referencePoint).scale(1.5).rotate(-Math.PI/16).to;
 		}
 	}
+	document.getElementById("snapNode").checked=snap;
 }
 
-function toggleMode(){
+function toggleMode(init=""){
 	let e=document.getElementById("togglemodebtn");
 	let fsmDiv=document.getElementById("fsmdiv");
 	let simulator=document.getElementById("simulator");
-	if( currentMode=="simulate"){
+	if( init==="edit" || init==="" && currentMode=="simulate"){
 		currentMode="edit";
 		e.innerText="Simulate";
 		e.title="Click to simulate current FSM";
 		fsmdiv.style.display="";
 		simulator.style.display="none";
 		waveforms=null;
-	}else{
+	}else if( init==="simulate" || init==""){
 		currentMode="simulate";
 		e.innerText="Edit FSM";
 		e.title="Click to end simulation and return to editing mode";
 		fsmdiv.style.display="none";
 		simulator.style.display="";
 		simCanvas=document.getElementById("simcanvas");
-		waveforms=new timingDiagram(simCanvas);
+		waveforms=new timingDiagram(simCanvas,800);
 	}
 }
 
@@ -910,61 +929,197 @@ function adjustCanvasForPixelRatio(canvas,width,height){
 	canvas.getContext('2d').scale(dpr, dpr);
 }
 class mySignal{
-	constructor(initial=0,final=0){
-		this.edges=[];
-		this.initial=initial;
-		this.final=final;
+	constructor({ edges = [], initial = {time:-Infinity,value:"U"}, final =  {time:+Infinity,value:""} } = {}){
+		this.initial={...initial};
+		this.edges=edges.slice();
+		this.final={...final};
+	}
+	get allEdges(){
+		return [this.initial, this.edges,this.final].flat();
+	}
+	getEdgeAt(t){
+		return this.allEdges.find( e=>e.time==t);
 	}
 	valueAt(t){
-		let ret=this.initial;
-		this.edges.every( e=> {if(e.time<=t){ret=e.value; return true;} else return false;});
-		return ret;
+		return this.allEdges.findLast( e=> e.time<=t).value;
 	}
 	valueBefore(t){
-		let ret=this.initial;
-		this.edges.every( e=> {if(e.time<t){ret=e.value; return true;} else return false;});
-		return ret;
+		return this.allEdges.findLast( e=> e.time<t).value;
 	}
-	addEdge(t,v="boolean"){
-		if( this.edges.findIndex( e=>e.time==t) != -1 )
-			return;
+	addEdge(t,v,compress=false){
 		let idx=this.edges.findIndex( e=>e.time>t);
-		if( idx != -1 )
-			this.edges[idx].time=t;
-		else
-			this.edges.push({time:t,value: v==="boolean"?(this.valueAt(t)+1)%2 : v});
+		idx=(idx==-1?this.edges.length:idx);
+		this.edges.splice(idx,0,{time:t,value:v});
+		if( compress ) this.compress();
+		return this;
 	}
-	edgeAfter(t,maxtime=Infinity){
-		let idx=this.edges.findIndex( (e)=> e.time > t);
-		return idx===-1 ? maxtime : this.edges[idx].time;
+	timeOfNextEdgeAfter(t,maxtime=Infinity){
+		let time= this.allEdges.find( (e)=> e.time > t).time;
+		return time > maxtime ? maxtime : time;
 	}
-	edgeBefore(t, mintime=-Infinity){
-		let idx=this.edges.findLastIndex( (e)=> e.time < t);
-		return idx===-1 ? mintime : this.edges[idx].time;
+	timeOfPreviousEdgeBefore(t, mintime=-Infinity){
+		let time= this.allEdges.findLast( (e)=> e.time < t).time;
+		return time < mintime ? mintime: time;
 	}
-	closestEdgeTo(t){
-			return this.edges.reduce( (acc,ed)=> Math.abs(ed.time-t) < Math.abs(acc.time-t) ? ed : acc, {value:this.final,time:Infinity});
+	timeOfEdgeClosestTo(t){
+			return this.allEdges.reduce( (acc,ed)=> Math.abs(ed.time-t) <= Math.abs(acc.time-t) ?ed:acc).time;
 	}
-	deleteEdgesWithin(t,epsilon){
-		let numEdges=this.edges.length;
-		this.edges = this.edges.filter( (e)=> Math.abs(e.time-t) > epsilon);
-		return numEdges != this.edges.length;
+	compress(){
+		this.edges=this.edges.filter( e1 => e1.value !== this.valueBefore(e1.time));
+		this.edges=this.edges.filter( (e1,i,arr) => { 
+			let ii=arr.findIndex(e2=>e2.time==e1.time);
+			return i === ii;});
+		return this;
+	}
+	deleteEdges(t1,t2=t1){
+		this.edges = this.edges.filter( (e)=> e.time < t1 || e.time > t2);
+		return this;
 	}
 	* segments(starttime = 0, endtime = Infinity) {
-		let next={prior:this.valueBefore(starttime), end:starttime,start: starttime, value:this.valueAt(starttime)}; 
-		for( const [i, e] of this.edges.entries()){
-			if( e.time > next.end && e.time < endtime ){
-			      next.end=e.time;
-			      let retval={prior:next.prior,start:next.start,end:next.end,value:next.value};
-			      next.start=e.time;
-			      next.prior=next.value;
-			      next.value=e.value;
-			      yield retval;
+		let next={value:this.initial.value, end:-Infinity, start: starttime, prior:this.initial.value}; 
+		for( let e of this.edges){
+			if( e.time < endtime){
+				next.end=e.time;
+			if( e.time > starttime )
+				yield {...next};
+			next.start=next.end;
+			next.prior=next.value;
+			next.value=e.value;
 			}
 		}
 		next.end=endtime;
-		yield next;
+		yield {...next};
 	}
+}
+function parseInputOutput(e) {
+  e = e.replaceAll(/\s*([+=&'|\/,;.])\s*/g, (m, $1) => $1);
+  e = e.replaceAll(/^\s*|\s*$/g,"");
+  e = e.replaceAll(/\s+/g, ",");
+  let io;
+  if( e === "" )
+    io = [["-","-",""]];
+  else if (e.includes('/'))
+    io = [...e.matchAll(/([^\s,;]*)\/(.*?)(?=$|[^\s,;]*\/)/g)];
+  else
+    io = [...e.matchAll(/([^\s,;]+)(.*?)/g)];
+  return io.map(a => ( { input: a[1], output: a[2] } ));
+}
+
+function getInputSignals(){
+	let names=document.getElementById("inputsignals").value.split(/[\s,.;:']/g).filter(e=>e!=="");
+	let allArcs=[fsmSelfArcs,fsmArcs].flat();
+	let all=allArcs.map(a => parseInputOutput(a.outputText).map(x=>x.input)).flat().join("+");
+	let allProductTerms=[...all.matchAll(/[a-z]+[0-9]*/g)].flat().sort((a,b)=>a.length-b.length);
+	if( allProductTerms.length !== 0 ){
+		allProductTerms=allProductTerms.filter((x,i)=>allProductTerms.indexOf(x)===i);
+		if( allProductTerms.every(a=>names.includes(a)))
+			return names;
+		if( allProductTerms.every(a => {let ta=a;names.forEach(n=> ta=ta.replaceAll(n,"")); return ta==="";}))
+			return names;
+		return allProductTerms;
+	}else{
+		let allCubes=[... all.matchAll(/[01\-X?x]*/g)].flat().sort((a,b)=> b.length-a.length);
+		if( allCubes.every( c=> c==="-" || c==="" ))
+			return [];
+		else if( allCubes.every( c=> c==="-" || c==="" || c.length==="1"))
+			return ['a'];
+		else if( allCubes.every( c=> c==="" || c==="-" || c.length===Math.max(... allCubes.map(e=>e.length))))
+			return [... Array(Math.max(... allCubes.map(e=>e.length))).keys()].map(i=>"a["+i+"]");
+		else
+			return [];
+	}
+}
+function getOutputSignals(){
+	let ret={type:"none",names:[]};
+	let all=[];
+	all.push(fsmArcs.map(a=>parseInputOutput(a.outputText).flat().map(e=>e.output)));
+	all.push(fsmSelfArcs.map(a=>parseInputOutput(a.outputText).flat().map(e=>e.output)));
+	all.push(fsmNodes.map(n=>(n.outputText)));
+	all=all.flat(Infinity).join(" ");
+	all=all.replaceAll(/\s*=\s*/g,"=");
+	all=all.replaceAll(/\s*[^\s:;,\/]*\//g," ");
+	all=all.replaceAll(/[,;\s:\/\\]+/g,",");
+	all=all.split(",").filter(e=>e!=="");
+	if( all.length === 0 )
+		return ret;
+	if( all.every( s=> s.match( /(^[A-Za-z][^=]*)=/g ) !== null )){
+		ret.type="explicit";
+		let names=new Set(all.map( a=> a.replace(/=.*$/g,""))); 
+		ret.names=Array.from(names); 
+	}else{
+		if( all.length != 0 && all.every( c=> c.length===all[0].length && c.match(/^[01xX?-]+$/) !== null ) &&
+			all.some( c=> c.at(0) !== all[0].at(0))){
+			ret.type="positional";
+			let names=document.getElementById("outputsignals").value.split(/[\s,.;:]/).filter(e=>e!=="");
+			if( names.length === all[0].length )
+				ret.names=names;
+			else
+				ret.names=[... Array(all[0].length).keys()].map(i=>"f"+i);
+		}else{
+			if( all.every( s=> s.match( /(^[A-Za-z][^=]*)$/g ) !== null )){
+					ret.names=all;
+					ret.type="implicit";
+			}else{
+				ret.type="mixed";
+			}
+		}
+	}
+	return ret;
+}
+function updateStateAndOutputFunctions(){
+	let outputSignals=getOutputSignals();
+	let literals=getInputSignals(); 
+	let partial={};
+	for( let n of fsmNodes){
+		partial[n.stateName]=[];
+		n.nextState=Array.from(Array(2**literals.length),()=>[]);
+		n.outputFn={};
+		if( outputSignals.type==="implicit") 
+			outputSignals.names.map(s=> n.outputFn[s]=Array.from(Array(2**literals.length),()=>[0]));
+		else
+			outputSignals.names.map(s=> n.outputFn[s]=Array.from(Array(2**literals.length),()=>[]));
+	}
+	let all=[];
+	all.push(fsmArcs.map(a=>parseInputOutput(a.outputText).flat().map(e=>({element:a,io:e}))));
+	all.push(fsmSelfArcs.map(a=>parseInputOutput(a.outputText).flat().map(e=>({element:a,io:e}))));
+	all.push(fsmNodes.map(n=>({element:n,io:{input:"",output:n.outputText}})));//.filter(e=>e.io.output !==""));
+	for( let e of all.flat(Infinity)){
+		let b=new booleanExpression(e.io.input,literals);
+		let n=e.element;
+		if( e.element.fsmType == "arc" ){
+			n=n.startNode;
+		}
+		let mt=b.minterms();
+		if( e.element.fsmType === "arc" )
+			partial[n.stateName].push({ns:e.element.endNode.stateName,fn:mt});
+		if( outputSignals.type === "positional" ){
+			let out=e.io.output.matchAll(/[01X?-]/g);
+			for( let f of outputSignals.names){
+				let {value,done}=out.next();
+				value=parseInt(value);
+					if( !done )
+						mt.forEach( m=> n.outputFn[f][m].push(value));
+			}
+		}else if( outputSignals.type === "explicit"){
+			let out=e.io.output.matchAll(/([A-Za-z][^=\s]*)\s*=\s*([^\s,;:\/\\]+)/g );
+			let x=[...out];
+			x.forEach(f=> mt.forEach( m=> n.outputFn[f[1]][m].push(parseInt(f[2])) ));
+		}else if( outputSignals.type === "implicit"){
+			let out=e.io.output.split(/[\s,;:]/g).filter(e=>e!=="");
+			out.forEach(f=> mt.forEach( m=> n.outputFn[f][m]=[1] ));
+		}
+	};
+	for( let n of fsmNodes){
+		partial[n.stateName].forEach( f=> f.fn.forEach( m=> n.nextState[m].push(f.ns)));
+	}
+}
+function resolveOutput(s){
+	if( s.length === 0 )
+		return 'U';
+	else if( s.length === 1 )
+		return s[0];
+	else
+		return 'X';
 }
 class timingDiagram{
 	constructor(canvas,width=800,sigpad=20,sigheight=20,cycles=10,linewidth=1,textpad=5){
@@ -972,179 +1127,323 @@ class timingDiagram{
 		let thisDiagram=this;
 		let ctx=this.canvas.getContext("2d");
 		this.numCycles=cycles;
+		let cyclesSlider=document.getElementById("clockcycles");
+		cyclesSlider.value = limitRangeOf(cycles,5,20).toString();
+		let fontSlider=document.getElementById("simfontsize");
+		fontSlider.max=sigheight.toString();
+		fontSlider.value=sigheight.toString();
+		this.fontSize=sigheight.toString();
+		fontSlider.addEventListener("input",function(e)
+		{
+			thisDiagram.fontSize=this.value;
+			thisDiagram.redraw();
+		});
 		this.textPad=textpad;
 		this.sigPad=sigpad;
 		this.sigHeight=sigheight;
 		this.timeMarker=.5;
-		this.sliderMoving=false;
+		this.sliderMoving="none";
 		this.edgeMoving=null;
-		this.inputSignals=new Array();
+		this.levelMoving=null;
+		updateStateAndOutputFunctions();
+		this.circuitInputs=getInputSignals().map( i =>( { name:i, signal:new mySignal( {initial: {time: -Infinity,value:0} } ) })); 
+		this.circuitInputs.unshift({ 
+			name:document.getElementById("resetsignal").value, 
+			signal:new mySignal({initial:{time:-Infinity, value:0}}) 
+		});
 		let clk={name:document.getElementById("clocksignal").value,signal:new mySignal()};
 		for( let i=0; i<2*this.numCycles+1; i++ ){
-			clk.signal.addEdge(i);
+			clk.signal.addEdge(i,i%2);
 		}
-		this.inputSignals.push(clk);
-		this.inputSignals.push({ name:document.getElementById("resetsignal").value, signal:new mySignal() });
-		for( let i=1; i<=parseInt(document.getElementById("numberofinputsignals").value); i++ )
-			this.inputSignals.push( { name:document.getElementById("inputsignal"+i).value, signal:new mySignal() });
-		this.outputSignals=new Array();
-		this.outputSignals.push( { name:"state", signal:new mySignal("undefined","undefined")});
-		this.outputSignals.push( { name:"next state", signal:new mySignal("undefined","undefined") });
-		for( let i=1; i<=parseInt(document.getElementById("numberofoutputsignals").value); i++ ){
-		this.outputSignals.push({ name:document.getElementById("outputsignal"+i).value,signal:new mySignal("undefined","undefined")});
-		}
-		this.canvasHeight=(1+this.outputSignals.length+this.inputSignals.length)*(this.sigPad+this.sigHeight);
+		this.circuitInputs.unshift(clk);
+
+		this.circuitOutputs=getOutputSignals().names.map(s=>({ name: s,
+				signal:new mySignal({initial:{time:-Infinity,value:'U'}})
+			}));
+		
+		this.circuitOutputs.unshift( { name:"state", signal:new mySignal()});
+		this.circuitOutputs.unshift( { name:"next state", signal:new mySignal() });
+
+		this.canvasHeight=(1+this.circuitOutputs.length+this.circuitInputs.length)*(this.sigPad+this.sigHeight);
 		this.canvasWidth=width;
 		adjustCanvasForPixelRatio(canvas,width,this.canvasHeight );
 		ctx.font=this.sigHeight.toString()+"px monospace";
 		ctx.lineWidth=1;
-		this.textWidth=2*this.sigPad+Math.max(...[this.inputSignals,this.outputSignals].flat().map(n => ctx.measureText(n.name).width));
+		this.textWidth=2*this.sigPad+Math.max(...[this.circuitInputs,this.circuitOutputs].flat().map(n => ctx.measureText(n.name).width));
 		this.sigWidth=ctx.canvas.width/ctx.getTransform().a-this.textWidth-this.sigPad;
 		this.signalArea=new boundingBox([new point(this.textWidth,sigpad),new point(width-sigpad,this.canvasHeight-sigpad)]);
+		cyclesSlider.addEventListener("input",function(e)
+		{
+			thisDiagram.circuitInputs[0].signal.deleteEdges(0,Infinity);
+			thisDiagram.numCycles=this.value;
+			thisDiagram.circuitInputs.forEach(s=>s.signal.deleteEdges(thisDiagram.numCycles*2,Infinity));
+			for( let i=0; i<2*thisDiagram.numCycles+1; i++ ){
+				clk.signal.addEdge(i,i%2);
+		}
+			thisDiagram.redraw();
+		});
 		
 		this.canvas.onmousedown = function(e){
+			mouseClick.state="down";
 			let mClkPt=getMousePosition(simCanvas,e);
 			let pad=thisDiagram.sigPad;
 			let left= thisDiagram.textWidth+thisDiagram.timeMarker*thisDiagram.sigWidth-pad/2;
 			let top= thisDiagram.canvasHeight-1.5*pad;
 			let {signal,x} = thisDiagram.signalAtPoint(mClkPt);
 			if(mClkPt.x > left && mClkPt.x < left+pad &&mClkPt.y > top && mClkPt.y < top+pad)
-				thisDiagram.sliderMoving=true;
-			else if( signal != -1 ){
-				if( signal < thisDiagram.inputSignals.length ){
-					let sig=thisDiagram.inputSignals[signal].signal;
+				thisDiagram.sliderMoving="any";
+			else if( signal != -1 && x >=0 && x < 1){
+				if( signal == 0 ){
+					thisDiagram.sliderMoving="clock";
+					thisDiagram.timeMarker=thisDiagram.clockEdgeNearest({position:x});
+					thisDiagram.redraw();
+				}else if( signal < thisDiagram.circuitInputs.length ){
+					let sig=thisDiagram.circuitInputs[signal].signal;
 					let t=2*x*thisDiagram.numCycles;
-					let nearestEdge=sig.closestEdgeTo(t);
-					if( Math.abs(nearestEdge.time-t) < .1 ){
-						let min=sig.edgeBefore(nearestEdge.time,.0001);
-						let max=sig.edgeAfter(nearestEdge.time,2*thisDiagram.numCycles);
-						thisDiagram.edgeMoving={edge:nearestEdge,max:max,min:min};
+					let nearestEdge=sig.timeOfEdgeClosestTo(t);
+					if( Math.abs(nearestEdge+0.05-t) < .075 ){
+						let min=sig.timeOfPreviousEdgeBefore(nearestEdge,0);
+						let max=sig.timeOfNextEdgeAfter(nearestEdge,2*thisDiagram.numCycles);
+						thisDiagram.edgeMoving={edge:sig.getEdgeAt(nearestEdge),max:max,min:min,sig:sig};
+					}else{
+						let t=x*thisDiagram.numCycles*2;
+						let leftClk=Math.floor(t);
+						let leftEdge=sig.timeOfPreviousEdgeBefore(t);
+						let rightEdge=sig.timeOfNextEdgeAfter(t);
+						//if( leftEdge <= leftClk && rightEdge >= leftClk+1 ){
+							let value=(sig.valueAt(t)+1)%2;
+							thisDiagram.levelMoving={sig:sig,value:value};
+							let nextValue=sig.valueAt(leftClk+1.2);
+							sig.deleteEdges(leftClk-.2,leftClk+1.2);
+							sig.addEdge(leftClk,value);
+							sig.addEdge(leftClk+1,nextValue);
+							sig.compress();
+							thisDiagram.redraw();
+						//}
 					}
 				}
 			}
 		}
 		this.canvas.onmouseout = function(e){
-			thisDiagram.sliderMoving=false;
+			mouseClick={count:0,time:0,state:"out"};
+			thisDiagram.sliderMoving="none";
 			thisDiagram.edgeMoving=null;
+			thisDiagram.levelMoving=null;
 		}
 		this.canvas.onmousemove = function(e){
-			let mouseClickPoint=getMousePosition(simCanvas,e);
-			if( thisDiagram.sliderMoving ){
-				thisDiagram.timeMarker=Math.min(1,Math.max((mouseClickPoint.x-thisDiagram.textWidth)/thisDiagram.sigWidth,0));
-				thisDiagram.redraw();
-			}
-			if( thisDiagram.edgeMoving != null ){
-				let p=thisDiagram.signalArea.relativeCoordinatesOfPoint(mouseClickPoint);
-				p.x=p.x*thisDiagram.numCycles*2;
-				if( p.x >= .2+thisDiagram.edgeMoving.min && p.x <= thisDiagram.edgeMoving.max-.25 ){
-					thisDiagram.edgeMoving.edge.time=p.x;
+			if( mouseClick.state != "down" && mouseClick.state != "move") 
+				return; //only dragging opera=tions
+			mouseClick.state="move";
+			mouseClick.count=0;
+			mouseClick.time=0;
+			let mouseLoc=thisDiagram.signalArea.relativeCoordinatesOfPoint(getMousePosition(simCanvas,e));
+			let t= mouseLoc.x*thisDiagram.numCycles*2;
+			if( thisDiagram.sliderMoving != "none"){
+					if( thisDiagram.sliderMoving === "clock"){
+						let nearestClk=Math.round(mouseLoc.x*2*thisDiagram.numCycles);
+						let edge=thisDiagram.clockEdgeNearest({position:mouseLoc.x});
+						if( nearestClk%2==0 )
+							thisDiagram.timeMarker=limitRangeOf(edge,0,1);
+						else if( mouseLoc.x < edge )
+							thisDiagram.timeMarker=limitRangeOf(edge - .005,0,1);
+						else
+							thisDiagram.timeMarker=limitRangeOf(edge + .005,0,1);
+					}
+					else
+						thisDiagram.timeMarker=limitRangeOf(mouseLoc.x,0,1);
 					thisDiagram.redraw();
+			}
+			else if( thisDiagram.edgeMoving != null ){
+				if( t >= .2+thisDiagram.edgeMoving.min && t <= thisDiagram.edgeMoving.max-.2 ){
+					thisDiagram.edgeMoving.edge.time=t;
+					thisDiagram.redraw();
+				}
+			}
+			else if( thisDiagram.levelMoving != null ){
+				let leftClk=Math.floor(limitRangeOf(t,0,thisDiagram.numCycles*2));
+				let sig=thisDiagram.levelMoving.sig;
+				let nextValue=sig.valueAt(leftClk+1);
+				if( sig.valueAt(t) != thisDiagram.levelMoving.value){
+						sig.deleteEdges(leftClk,leftClk+1);
+						sig.addEdge(leftClk,thisDiagram.levelMoving.value);
+						sig.addEdge(leftClk+1,nextValue);
+						sig.compress();
+						thisDiagram.redraw();
 				}
 			}
 		}
 		this.canvas.onmouseup = function(e){
-			if( thisDiagram.sliderMoving ){
-					thisDiagram.sliderMoving=false;
-			}else if( thisDiagram.edgeMoving){
-					thisDiagram.edgeMoving=null;
-			} else{
-					let mouseClickPoint=getMousePosition(simCanvas,e);
-					let {signal,x}=thisDiagram.signalAtPoint(mouseClickPoint);
-					if( signal != -1 ){ 
-						if( signal==0){ 
-							thisDiagram.timeMarker=Math.round(px*thisDiagram.numCycles*2)/(2*thisDiagram.numCycles);
-						}
-						else if( signal < thisDiagram.inputSignals.length ){
-							let t= (Math.abs(x-thisDiagram.timeMarker)<.01 ? thisDiagram.timeMarker :x)*2*thisDiagram.numCycles;
-							let sig=thisDiagram.inputSignals[signal].signal;
-							if( t == 0 )
-								sig.initial = (sig.initial+1)%2;
-							else if( t < 2*thisDiagram.numCycles && !sig.deleteEdgesWithin(t,.15)){
-									sig.addEdge(t);
-							}
-						}else if( 0){
-							//move nearby edge if exists
-						}
-					}
-					thisDiagram.redraw();
+			if( thisDiagram.edgeMoving && mouseClick.state=="down"){
+				thisDiagram.edgeMoving.sig.deleteEdges(thisDiagram.edgeMoving.edge.time);
+				thisDiagram.redraw();
 			}
+			if( mouseClick.state == "down" ){
+				let clickTime=Date.now();
+				let deltaClick=clickTime-mouseClick.time;
+				if(mouseClick.count==1 && deltaClick < 350){ //double click
+					mouseClick.count=0;
+					mouseClick.time=0;
+					
+				}else{ 
+					mouseClick.count=1;
+					mouseClick.time=Date.now();
+				}
+			}
+			thisDiagram.sliderMoving="none";
+			thisDiagram.edgeMoving=null;
+			thisDiagram.levelMoving=null;
+			mouseClick.state="up";
 		}
 		this.redraw();
 	}
+	clockEdgeNearest({position:x=0,time:t=Infinity}){
+		if( t===Infinity) t=x*this.numCycles*2;
+		return Math.round(t)/(2*this.numCycles);
+	};
 	signalAtPoint(pt){
 		let ret={signal:-1,x:0};
 		let pad=this.sigPad;
 		let p=this.signalArea.relativeCoordinatesOfPoint(pt);
 		if( p.x >= 0 || p.x <= 1 || p.y >= 0 || p.y <= 1 )
 		{
-				let numsig=(1+this.inputSignals.length+this.outputSignals.length);
-				let y=p.y*numsig;
-				let signalNum=Math.floor(y);
-				let isOnSignal=(y-signalNum)*numsig>this.sigPad/(this.sigHeight+this.sigPad)/numsig;
-				if( isOnSignal )
-					ret.signal=signalNum;
-				ret.x=p.x;
+			let numsig=(1+this.circuitInputs.length+this.circuitOutputs.length);
+			let y=p.y*numsig;
+			let signalNum=Math.floor(y);
+			let isOnSignal=(y-signalNum)*numsig>this.sigPad/(this.sigHeight+this.sigPad)/numsig;
+			if( isOnSignal )
+				ret.signal=signalNum;
+			ret.x=p.x;
 		}
 		return ret;
 	}
 	drawSignal(c,signal,timescale,maxtime,isclock=false){
 		c.textAlign="right";
 		c.textBaseline="top";
+		c.strokeStyle=c.fillStyle="black";
 		c.fillText(signal.name,-this.textPad,0);
 		let sig=signal.signal;
 		c.beginPath();
 		let isFirst=true;
 		for( let seg of sig.segments(0,this.numCycles*2)){
+			c.beginPath();
+			c.fillStyle=c.strokeStyle=(seg.value==="X" || seg.value==="U"|| seg.value===.5)?"red":"green";
 			let start= timescale * seg.start; 
 			let end= timescale * seg.end; 
 			let transition=timescale*.1;
+			let prior= (seg.prior ===0.5) ? [0.5] : (seg.prior ===0) ? [1] : (seg.prior ===1) ? [0] : [0,1];  
+			let value= (seg.value ===0.5) ? [0.5] : (seg.value ===0) ? [1] : (seg.value ===1) ? [0] : [0,1];  
 			if( isclock )
 				transition=0;
 			if( !isFirst ){
-				if( seg.prior==0 && seg.value!=1 || seg.prior !=1 && seg.value==0){
-					c.moveTo(start,this.sigHeight);
-					c.lineTo(start+transition,this.sigHeight);
-				}
-				if( seg.prior==1 && seg.value!=0 || seg.prior !=0 && seg.value==1){
-					c.moveTo(start,0);
-					c.lineTo(start+transition,0);
-				}
-				if( seg.prior!=1 && seg.value!=0 ){
-					c.moveTo(start,this.sigHeight);
-					c.lineTo(start+transition,0);
-				}
-				if( seg.prior!=0 && seg.value!=1){
-					c.moveTo(start,0);
-					c.lineTo(start+transition,this.sigHeight);
+				for( let p of prior ){
+					for( let v of value ){
+							c.moveTo(start,p*this.sigHeight);
+							c.lineTo(start+transition,v*this.sigHeight);
+					}
 				}
 				start=start+transition;
 			}
 			isFirst=false;
 			//draw signal value
-			if( seg.value != 1 ){
-				c.moveTo(start,this.sigHeight);
-				c.lineTo(end, this.sigHeight);
-			}
-			if( seg.value != 0 ){
-				c.moveTo(start,0);
-				c.lineTo(end, 0);
+			for( let v of value ){
+				c.moveTo(start, v*this.sigHeight);
+				c.lineTo(end, v*this.sigHeight);
 			}
 			//draw value
-			if( seg.value != 0 && seg.value != 1 ){
+			if( value.length>=2 && c.measureText(seg.value).width < (end-start) ){
 				c.textAlign="center";
-				c.textBaseline="top";
-				c.fillText(seg.value,(start+end)/2,0);
+				c.textBaseline="middle";
+				c.fillText(seg.value,(start+end)/2,this.sigHeight/2);
+			}
+			c.stroke();
+		}
+	}
+	updateOutputs(){
+		this.circuitOutputs.forEach( o  => o.signal.deleteEdges(0,Infinity));
+		if( fsmResetArcs.length === 0 )
+			return;
+		let nextState=this.circuitOutputs[0];
+		let state=this.circuitOutputs[1];
+		let reset=this.circuitInputs[1];
+		let inputSignalChanges=this.circuitInputs.map(i => i.signal.edges).flat(Infinity).map( e=>e.time).sort((a,b)=>a-b);
+		
+		while( inputSignalChanges.length ){
+			let t=inputSignalChanges[0];
+			let minterm=this.circuitInputs.slice(2).map(s=>s.signal.valueAt(t)).reduce((acc,i)=> acc=2*acc+i, 0);
+			while( inputSignalChanges[0]===t)
+				inputSignalChanges.shift();
+			let isRisingEdge=this.circuitInputs[0].signal.getEdgeAt(t);
+			isRisingEdge= isRisingEdge===undefined ? false : isRisingEdge.value===1;
+			if( isRisingEdge ){
+				state.signal.addEdge(t, nextState.signal.valueBefore(t) , true);
+			}
+			let currentFsmNode=fsmNodes.find(n=>n.stateName===state.signal.valueAt(t));
+			if( reset.signal.valueAt(t) == 1 ){
+				nextState.signal.addEdge(t, fsmResetArcs[0].node.stateName,true);
+			}else{
+				let s=state.signal.valueAt(t);
+				if( s==="U" || s==="X"){
+					nextState.signal.addEdge(t, s, true);
+					this.circuitOutputs.slice(2).forEach( o => o.signal.addEdge(t,s,true));
+				}else{
+					nextState.signal.addEdge(t, resolveOutput(currentFsmNode.nextState[minterm]), true);
+					this.circuitOutputs.slice(2).forEach( o => o.signal.addEdge(t,resolveOutput(currentFsmNode.outputFn[o.name][minterm]),true));
+				}
 			}
 		}
-		c.stroke();
 	}
 	redraw(){
+		if( this.leftmostPixel===undefined){
+			let ctx=fsmCanvas.getContext("2d");
+			let imageData = ctx.getImageData(0,0,ctx.canvas.width,ctx.canvas.height); 
+			this.leftmostPixel=ctx.canvas.width;
+			this.rightmostPixel=0;
+			this.topmostPixel=ctx.canvas.height;
+			this.bottommostPixel=0;
+			for( let col=0; col< ctx.canvas.width; col+=1 ){
+				for( let row=0; row< ctx.canvas.height; row+=1 ){
+					if( imageData.data[(row*ctx.canvas.width+col)*4+3] > 0 ){
+						this.leftmostPixel=Math.min( this.leftmostPixel,col);
+						this.topmostPixel=Math.min( this.topmostPixel,row);
+						this.rightmostPixel=Math.max( this.rightmostPixel,col);
+					}
+				}
+			}
+		}
+		this.updateOutputs();
+		deselectAll();
+		let t=this.timeMarker*this.numCycles*2;
+		let minterm=this.circuitInputs.slice(2).map(s=>s.signal.valueAt(t)).reduce((acc,i)=> acc=2*acc+i, 0);
+		let isreset=this.circuitInputs[1].signal.valueAt(t)===1;
+		if( isreset  && fsmResetArcs.length!= 0)
+			fsmResetArcs[0].select();
+		let state=this.circuitOutputs[0].signal.valueAt(t);
+		if( state != "U" && state != "X" )
+		{
+			let start=fsmNodes.find(n=>n.stateName === state);
+			start.select();
+			if( !isreset){
+				for( let next of start.nextState[minterm] ){
+					let end=fsmNodes.find(n=>n.stateName === next );
+					[fsmArcs,fsmSelfArcs].flat().forEach(a=> {if(a.startNode===start && a.endNode===end) a.select();} );
+				}
+			}
+		}
+		let ctx=document.getElementById("simfsmcanvas").getContext("2d");
+		let {a,d}=fsmCanvas.getContext("2d").getTransform();
+		ctx.save();
+		let left=(ctx.canvas.width-(this.rightmostPixel+this.leftmostPixel)/a)/2;
+		ctx.translate(left,-this.topmostPixel/d);
+		updateSimFSM(ctx);
+		ctx.restore();
 		let c=this.canvas.getContext("2d");
-		c.clearRect(0, 0, c.canvas.width, c.canvas.height);
-		c.fillStyle=c.strokeStyle="black";
+		c.fillStyle="black";
+		c.font=this.fontSize+"px monospace";
+		c.fillRect(0, 0, c.canvas.width, c.canvas.height);
+		c.fillStyle="grey";
+		c.fillRect(0, 0, this.textWidth,c.canvas.height);
 		c.lineWidth = 1;
-		this.textWidth=2*this.sigPad+Math.max(...[this.inputSignals,this.outputSignals].flat().map(n => c.measureText(n.name).width));
-		[this.inputSignals, this.outputSignals].flat().forEach( (s,i) => {
+		[this.circuitInputs, this.circuitOutputs].flat().forEach( (s,i) => {
 			c.save();
 			c.translate( this.textWidth, this.sigPad+ (i)*(this.sigHeight+this.sigPad));
 			this.drawSignal(c, s, this.sigWidth/(2*this.numCycles),this.numCycles*2, i==0 ? true : false);
@@ -1153,11 +1452,10 @@ class timingDiagram{
 		c.beginPath();
 		let timeMarkerX=this.textWidth+this.timeMarker*this.sigWidth;
 		c.moveTo(timeMarkerX,this.sigPad/2);
-		c.strokeStyle="#FFFF0080";
+		c.strokeStyle=c.fillStyle="#FFFF00c0";
 		c.lineWidth=2;
-		c.lineTo(timeMarkerX,this.canvasHeight-this.sigPad/2);
+		c.lineTo(timeMarkerX,this.canvasHeight-1.5*this.sigPad);
 		c.stroke();
-		c.fillStyle="yellow";
 		c.fillRect(timeMarkerX-this.sigPad/2, this.canvasHeight-1.5*this.sigPad, this.sigPad, this.sigPad);
 	}
 }
@@ -1166,16 +1464,19 @@ window.onload = function() {
 	 *Editor
 	 ***********************************************************************************/
 	let needToSaveHistory=false;
-	currentMode="edit";
+	toggleMode("edit");
 	changeHistory= new history( makeBackup, restoreBackup);
 	fsmCanvas = document.getElementById('fsmcanvas');
+	mouseClick={count:0,time:0,state:"out"};
 	adjustCanvasForPixelRatio(fsmCanvas,800,600);
-	//document.getElementById("welcomeModal").showModal();
+	document.getElementById("welcomeModal").showModal();
 	let toggleButton=document.getElementById("togglemodebtn");
-	toggleButton.onclick=toggleMode;
+	toggleButton.onclick=function(){toggleMode()};
 	var newButton=new myButton("filetoolbuttons","newbtn","toolbtn","New FSM","Erase all and start new FSM", function(e){
 		selectAll();
 		deleteSelected();
+		document.getElementById("inputsignals").value="";
+		document.getElementById("outputsignals").value="";
 	});
 	var arcButton=new myButton("tooltoolbuttons","arcbtn","toolbtn","Arc Tool","Selects the arc drawing tool",function(e){
 		toolSelect("arc");
@@ -1256,16 +1557,20 @@ window.onload = function() {
 			property1.labels[0].textContent="Node Name";
 			property2.labels[0].textContent="Moore Outputs";
 			property1.value=subjectOfPropertyEditor.stateName;
-			property2.value=subjectOfPropertyEditor.mooreOutputs;
-		}else if( subjectOfPropertyEditor.fsmType === "arc" ){
-			property1.labels[0].textContent="Arc Condition";
-			property2.labels[0].textContent="Arc Outputs";
-			property1.value=subjectOfPropertyEditor.inputText;
 			property2.value=subjectOfPropertyEditor.outputText;
-			if( subjectOfPropertyEditor.fsmSubtype != "none" )
-				property2.style.display="none";
-			else
-				property2.style.display="";
+			property2.style.display="";
+			property2.labels[0].style.display="";
+		}else if( subjectOfPropertyEditor.fsmType === "arc" ){
+			property1.labels[0].textContent="Arc Condition/ Output(s)";
+			property2.style.display="none";
+			property2.labels[0].style.display="none";
+			//property2.labels[0].textContent="Arc Outputs";
+			property1.value=subjectOfPropertyEditor.outputText;
+			//property2.value=subjectOfPropertyEditor.outputText;
+			//if( subjectOfPropertyEditor.fsmSubtype != "none" )
+			//property2.style.display="none";
+			//else
+				//property2.style.display="";
 		}
 		deselectAll();
 		subjectOfPropertyEditor.select();
@@ -1303,19 +1608,19 @@ window.onload = function() {
 					dirty=true;
 					subjectOfPropertyEditor.stateName=property1.value;//.slice();
 				}
-				if( property2.value !==subjectOfPropertyEditor.mooreOutputs){
-					dirty=true;
-					subjectOfPropertyEditor.mooreOutputs=property2.value;//.slice();
-				}
-			}else if( subjectOfPropertyEditor.fsmType === "arc" ){
-				if( property1.value !==subjectOfPropertyEditor.inputText){
-					dirty=true;
-					subjectOfPropertyEditor.inputText=property1.value;//.slice();
-				}
 				if( property2.value !==subjectOfPropertyEditor.outputText){
 					dirty=true;
 					subjectOfPropertyEditor.outputText=property2.value;//.slice();
 				}
+			}else if( subjectOfPropertyEditor.fsmType === "arc" ){
+				if( property1.value !==subjectOfPropertyEditor.outputText){
+					dirty=true;
+					subjectOfPropertyEditor.outputText=property1.value;//.slice();
+				}
+				//if( property2.value !==subjectOfPropertyEditor.outputText){
+					//dirty=true;
+					//subjectOfPropertyEditor.outputText=property2.value;//.slice();
+				//}
 			}
 			if( dirty ){
 					localStorage['fsm'] = changeHistory.push();
@@ -1356,7 +1661,6 @@ window.onload = function() {
 	selectedObject= new fsmElement(); 
 	updateFSM();
 	changeHistory.push();
-	var mouseClick={count:0,time:0,state:"out"};
 	fsmCanvas.onmouseout = function(e) {
 		mouseClick={count:0,time:0,state:"out"};
 		temporaryObject= new fsmElement(); 
@@ -1377,7 +1681,7 @@ window.onload = function() {
 		selectionOffset=zeroPoint;
 
 		let clickPoint = getMousePosition(fsmCanvas,e);
-		objectAtClickPoint = locateObjectAt(clickPoint);
+		let objectAtClickPoint = locateObjectAt(clickPoint);
 
 		//editor open bu we clicked outside
 		if(subjectOfPropertyEditor.fsmType !== "none"){
@@ -1438,10 +1742,10 @@ window.onload = function() {
 		}else if( selectionBox !== null ){
 			selectionBox.end=mouse;
 			let a=[fsmNodes,fsmArcs,fsmResetArcs,fsmSelfArcs].flat().forEach( x => {
-				if( x.selected=='f' && selectionBox.contains(x.referencePoint))
-					x.selected='p';
-				else if( x.selected == 'p' && !selectionBox.contains(x.referencePoint))
-					x.selected='f';
+				if( x.selected==false && selectionBox.contains(x.referencePoint))
+					x.selected=1;
+				else if( x.selected === 1 && !selectionBox.contains(x.referencePoint))
+					x.selected=false;
 			});
 			updateFSM();
 		}else if( selectedObject.fsmType !== "none"){
@@ -1450,7 +1754,7 @@ window.onload = function() {
 			updateFSM();
 		} else if( multiSelect ){ //selectionOffset !==null ){
 			let nodesMoved=false;
-			for( n of fsmNodes ){
+			for( let n of fsmNodes ){
 				if( n.isSelected() ){
 					n.referencePoint=n.referencePoint.plus( new vector(selectionOffset,mouse).translateTo(zeroPoint).to);
 					nodesMoved=true;
@@ -1468,14 +1772,13 @@ window.onload = function() {
 		let clickTime=Date.now();
 		let deltaClick=clickTime-mouseClick.time;
 		if(mouseClick.count==1 && deltaClick < 350){ //double click
-			debug=deltaClick;
 			mouseClick.count=0;
 			mouseClick.time=0;
 			if( tool ===selectedObject.fsmType || tool==="select" && selectedObject.fsmType !== "none" ){
 					subjectOfPropertyEditor=selectedObject;
 					selectedObject=new fsmElement();
 					openPropertyEditor();
-			}else if( selectedObject.fsmType === "none" ){
+			}else if( tool==="select" && selectionBox != null && selectedObject.fsmType === "none"  ){
 				document.getElementById("fsmproperties").showModal();
 			}
 		}else{ 
@@ -1483,6 +1786,7 @@ window.onload = function() {
 			mouseClick.time=Date.now();
 			if( temporaryObject.fsmType !== "none" ) { 
 				var mousePosition = getMousePosition(fsmCanvas,e);
+				let endNode;
 				if( temporaryObject instanceof temporaryArc && (endNode=locateObjectAt(mousePosition)) instanceof fsmNode ){
 					if( temporaryObject.node === null ){ //reset arc
 						if( fsmResetArcs.length == 0 ){
@@ -1509,9 +1813,9 @@ window.onload = function() {
 					multiSelect=false;
 					deselectAll();
 				}
-				for( el of [fsmArcs,fsmResetArcs,fsmSelfArcs,fsmNodes].flat()){
-					if( el.selected=='p') 	
-						el.setSelected('t');
+				for( let el of [fsmArcs,fsmResetArcs,fsmSelfArcs,fsmNodes].flat()){
+					if( el.selected===1) 	
+						el.select();
 				};
 				selectionBox=null;
 				updateFSM();
