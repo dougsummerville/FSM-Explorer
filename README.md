@@ -1,7 +1,7 @@
 # Finite State Machine (FSM) Explorer
  A Finite State Machine exploration tool for engineering education. Written in Javascript and HTML with no dependencies.
 ## Try it Out
-[Click here](http://www.ws.binghamton.edu/fsmexplorer) to try it out live.
+[Click here](http://www.ws.binghamton.edu/dsummer/fsmexplorer) to try it out live.
 ## About
 Finite State Machine (FSM) Explorer is an educational tool for exploring FSM controllers, the type of FSM used by engineers when designing digital systems. The tool allows the user to draw an FSM diagram, specify node and arc parameters, and functionally simulate the resulting FSM.
 ## Features
