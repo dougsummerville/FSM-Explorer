@@ -1703,6 +1703,12 @@ window.onload = function() {
 			selectAll();
 			updateFSM();
 			e.preventDefault();
+		}else if( e.code === "KeyA" ){
+			toolSelect("arc");
+		}else if( e.code === "KeyN" ){
+			toolSelect("node");
+		}else if( e.code === "KeyS" ){
+			toolSelect("select");
 		}
 	}
 	fsmCanvas.onmouseout = function(e) {
