@@ -877,8 +877,11 @@ function autoArrange(){
 	if( len < 2 )
 		return;
 	//center and radius of group of nodes
+	let xs=nodes.map(n=>n.referencePoint.x);
+	let ys=nodes.map(n=>n.referencePoint.y);
 	let b=new boundingBox(nodes.map(n=>n.referencePoint));
-	let center=b.centerPoint();
+	//let center=b.centerPoint();
+	let center=new point(xs.reduce((a,x)=>a+x)/xs.length,ys.reduce((a,y)=>a+y)/ys.length);
 	let radius=Math.sqrt(b.height**2,b.width**2)/2;
 	radius=Math.max(radius,2*nodeRadius);
 
@@ -1684,6 +1687,24 @@ window.onload = function() {
 	selectedObject= new fsmElement(); 
 	updateFSM();
 	changeHistory.push();
+	fsmCanvas.onkeydown = function(e){
+		if( e.code == "Delete" )
+			deleteSelected();
+		else if( e.code === "Escape" ){
+			deselectAll();	
+			updateFSM();
+		}else if( e.code === "KeyZ" && e.ctrlKey ){
+			localStorage['fsm'] = changeHistory.undo();
+			updateFSM();
+		}else if( e.code === "KeyY" && e.ctrlKey ){
+			localStorage['fsm'] = changeHistory.redo();
+			updateFSM();
+		}else if( e.code === "KeyA" && e.ctrlKey ){
+			selectAll();
+			updateFSM();
+			e.preventDefault();
+		}
+	}
 	fsmCanvas.onmouseout = function(e) {
 		mouseClick={count:0,time:0,state:"out"};
 		temporaryObject= new fsmElement(); 
