@@ -1443,7 +1443,7 @@ class timingDiagram{
 		let isreset=this.circuitInputs[1].signal.valueAt(t)===1;
 		if( isreset  && fsmResetArcs.length!= 0)
 			fsmResetArcs[0].select();
-		let state=this.circuitOutputs[0].signal.valueAt(t);
+		let state=this.circuitOutputs[1].signal.valueAt(t);
 		if( state != "U" && state != "X" )
 		{
 			let start=fsmNodes.find(n=>n.stateName === state);
