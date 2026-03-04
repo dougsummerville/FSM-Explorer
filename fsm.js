@@ -1877,4 +1877,13 @@ window.onload = function() {
 			updateFSM();
 		}
 	};
+
+	if (document.location.search) {
+	    var URI=decodeURIComponent(window.location.search.substr(1));
+	    if( restoreBackup(URI) ){
+		changeHistory.push("file load");
+		updateFSM();
+	        document.getElementById("welcomeModal").style.display="none";
+            }
+        }
 }
