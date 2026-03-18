@@ -1883,7 +1883,7 @@ window.onload = function() {
 	    if( restoreBackup(URI) ){
 		changeHistory.push("file load");
 		updateFSM();
-	        document.getElementById("welcomeModal").style.display="none";
+	        document.getElementById("welcomeModal").close();
             }
         }
 }
