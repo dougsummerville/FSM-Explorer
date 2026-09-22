@@ -135,7 +135,7 @@ CanvasRenderingContext2D.prototype.fillTextAtVector=function(t,v,padding=0){
 			this.textBaseline="top";
 			break;
 		case 2:
-			this.textAlign="middle";
+			this.textAlign="center";
 			this.textBaseline="top";
 			break;
 		case 3:
@@ -1549,6 +1549,57 @@ window.onload = function() {
 	    a.click();
 	    URL.revokeObjectURL(a.href);
 	    a.remove();
+	});
+	var stateTableButton=new myButton("filetoolbuttons","statetablebtn","utilbtn","State Table","Show state table for current FSM",function(e){
+		const dialog = document.createElement('dialog');
+		dialog.className = 'custom-modal';
+		updateStateAndOutputFunctions();
+		let nodes=[]
+		let done=[]
+		let reset_node=fsmResetArcs[0].endNode
+		nodes.push( reset_node)
+		let table=[]
+		for ( const n of nodes ){
+			if( !done.includes(n)){
+				for (const [index, value] of n.nextState.entries()) {
+				  let nd=fsmNodes.find(n1 => n1.stateName === value[0])
+				  if(!done.includes(nd))
+					nodes.push(nd)
+				  let st=`${n.stateName} ${index} ${value}`
+				  for( const f of Object.values(n.outputFn) ){
+					  st = st + ` ${f[index]}`
+				  }
+				  st = '<br>' + st
+				  table.push(st);
+				}
+				done.push(n)
+			}
+		}
+		nodes.push(reset_node)
+		dialog.innerHTML = `
+		    <div class="modal-content">
+		      <button class="close-btn" aria-label="Close modal">&times;</button>
+		      <div class="modal-body">
+			 <pre><br>
+		      	${table.map(item=> `${item}`).join('')}
+			</pre>
+		      </div>
+		    </div>
+		`;
+		document.body.appendChild(dialog);
+		dialog.showModal();
+		const closeBtn = dialog.querySelector('.close-btn');
+		const closeModal = () => {
+			dialog.close();
+			dialog.remove(); // Removes it from the DOM to avoid clutter
+		};
+
+		closeBtn.addEventListener('click', closeModal);
+		dialog.addEventListener('click', (event) => {
+			if (event.target === dialog) {
+				closeModal();
+			}
+		});
 	});
 	var loadFileButton=new myButton("filetoolbuttons","loadfilebtn","utilbtn","Load File","Load a previously saved FSM from a text file",function(e){
 		var input = document.createElement('input');
