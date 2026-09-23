@@ -1495,7 +1495,11 @@ window.onload = function() {
 	fsmCanvas = document.getElementById('fsmcanvas');
 	mouseClick={count:0,time:0,state:"out"};
 	adjustCanvasForPixelRatio(fsmCanvas,800,600);
-	document.getElementById("welcomeModal").showModal();
+	let welcome_mdl=document.getElementById("welcomeModal");
+	welcome_mdl.showModal();
+	welcome_mdl.addEventListener('click', (event) => {
+			welcome_mdl.close();
+	});
 	let toggleButton=document.getElementById("togglemodebtn");
 	toggleButton.onclick=function(){toggleMode()};
 	var newButton=new myButton("filetoolbuttons","newbtn","toolbtn","New FSM","Erase all and start new FSM", function(e){
@@ -1569,7 +1573,7 @@ window.onload = function() {
 				  for( const f of Object.values(n.outputFn) ){
 					  st = st + ` ${f[index]}`
 				  }
-				  st = '<br>' + st
+				  st = '<br>' + st +";"
 				  table.push(st);
 				}
 				done.push(n)
@@ -1577,9 +1581,10 @@ window.onload = function() {
 		}
 		nodes.push(reset_node)
 		dialog.innerHTML = `
-		    <div class="modal-content">
-		      <button class="close-btn" aria-label="Close modal">&times;</button>
-		      <div class="modal-body">
+		    <div >
+		      <button class="close-btn" aria-label="Close modal">Close</button>
+		      <button class="copy-btn" aria-label="Copy contents">Copy</button>
+		      <div id="statetablemodal">
 			 <pre><br>
 		      	${table.map(item=> `${item}`).join('')}
 			</pre>
@@ -1595,11 +1600,24 @@ window.onload = function() {
 		};
 
 		closeBtn.addEventListener('click', closeModal);
-		dialog.addEventListener('click', (event) => {
-			if (event.target === dialog) {
-				closeModal();
-			}
-		});
+
+		const copyBtn = dialog.querySelector('.copy-btn');
+		const copyModal = () => {
+		  try {
+		  const textToCopy = document.getElementById("statetablemodal").innerText.trimStart().trimEnd();
+		
+		    navigator.clipboard.writeText(textToCopy);
+		    copyBtn.textContent = 'Copied!';
+		    setTimeout(() => {
+		      copyBtn.textContent = 'Copy';
+		    }, 2000);
+
+		  } catch (err) {
+		    console.error('Failed to copy text: ', err);
+		  }
+		};
+
+		copyBtn.addEventListener('click', copyModal);
 	});
 	var loadFileButton=new myButton("filetoolbuttons","loadfilebtn","utilbtn","Load File","Load a previously saved FSM from a text file",function(e){
 		var input = document.createElement('input');
@@ -1620,7 +1638,7 @@ window.onload = function() {
 		input.click();
 	});
 	var helpButton=new myButton("helptoolbuttons","helpfilebtn","utilbtn","Help","Click to read help file",function(e){
-		document.getElementById("helpModal").showModal();
+		let modal=document.getElementById("helpModal").showModal();
 	});
 	//property editor
 	var propertyEditor=document.getElementById("propertyedit");
