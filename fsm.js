@@ -1560,34 +1560,48 @@ window.onload = function() {
 		updateStateAndOutputFunctions();
 		let nodes=[]
 		let done=[]
-		let reset_node=fsmResetArcs[0].endNode
-		nodes.push( reset_node)
-		let table=[]
-		for ( const n of nodes ){
-			if( !done.includes(n)){
-				for (const [index, value] of n.nextState.entries()) {
-				  let nd=fsmNodes.find(n1 => n1.stateName === value[0])
-				  if(!done.includes(nd))
-					nodes.push(nd)
-				  let st=`${n.stateName} ${index} ${value}`
-				  for( const f of Object.values(n.outputFn) ){
-					  st = st + ` ${f[index]}`
-				  }
-				  st = '<br>' + st +";"
-				  table.push(st);
+		let result=null
+		let reset_node=null
+		try{
+			reset_node=fsmResetArcs[0].endNode
+		}catch(e){
+			result="<p>Please add a reset arc and try again.</p>"
+		}
+		if(reset_node!==null){
+			try{
+				nodes.push( reset_node)
+				let table=[]
+				for ( const n of nodes ){
+					if( !done.includes(n)){
+						for (const [index, value] of n.nextState.entries()) {
+						  let nd=fsmNodes.find(n1 => n1.stateName === value[0])
+						  if(!done.includes(nd))
+							nodes.push(nd)
+						  let st=`${n.stateName} ${index} ${value}`
+						  for( const f of Object.values(n.outputFn) ){
+							  st = st + ` ${f[index]}`
+						  }
+						  st = '<br>' + st +";"
+						  table.push(st);
+						}
+						done.push(n)
+					}
 				}
-				done.push(n)
+				nodes.push(reset_node)
+				result=`
+				 <pre><br>
+				${table.map(item=> `${item}`).join('')}
+				</pre>`
+			}catch(e){
+				result="There's a problem with the FSM.  Please fix it and try again."
 			}
 		}
-		nodes.push(reset_node)
 		dialog.innerHTML = `
 		    <div >
 		      <button class="close-btn" aria-label="Close modal">Close</button>
 		      <button class="copy-btn" aria-label="Copy contents">Copy</button>
 		      <div id="statetablemodal">
-			 <pre><br>
-		      	${table.map(item=> `${item}`).join('')}
-			</pre>
+		      	${result}
 		      </div>
 		    </div>
 		`;
